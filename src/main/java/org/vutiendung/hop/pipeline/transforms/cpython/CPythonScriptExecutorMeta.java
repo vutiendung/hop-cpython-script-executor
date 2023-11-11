@@ -48,7 +48,6 @@ import org.apache.hop.pipeline.transform.stream.IStream;
 import org.apache.hop.pipeline.transform.stream.IStream.StreamType;
 import org.apache.hop.pipeline.transform.stream.Stream;
 import org.apache.hop.pipeline.transform.stream.StreamIcon;
-import org.vutiendung.hop.ui.pipeline.transforms.cpython.CPythonScriptExecutorDialog;
 import org.w3c.dom.Node;
 
 import java.util.ArrayList;

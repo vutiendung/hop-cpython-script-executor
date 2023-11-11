@@ -68,7 +68,6 @@ import org.apache.hop.core.util.StreamLogger;
  * The step requires python 2.7 or 3.4. It also requires the pandas, numpy, matplotlib and sklearn.
  * The python executable must be available in the user's path.
  *
- * @author Mark Hall (mhall{[at]}phalanxdev{[dot]}com)
  */
 public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMeta, CPythonScriptExecutorData> {
 

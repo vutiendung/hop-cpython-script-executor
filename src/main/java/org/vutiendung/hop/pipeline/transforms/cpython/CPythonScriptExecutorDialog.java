@@ -20,7 +20,7 @@
  *
  ******************************************************************************/
 
-package org.vutiendung.hop.ui.pipeline.transforms.cpython;
+package org.vutiendung.hop.pipeline.transforms.cpython;
 
 import org.apache.hop.core.Const;
 import org.apache.hop.core.Props;
@@ -76,21 +76,14 @@ import org.eclipse.swt.widgets.Text;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.vutiendung.hop.pipeline.transforms.cpython.CPythonScriptExecutorMeta;
-
-/**
- * Dialog for the CPythonScriptExecutor step
- *
- * @author Mark Hall (mhall{[at]}phalanxdev{[dot]}com)
- */
 public class CPythonScriptExecutorDialog extends BaseTransformDialog implements ITransformDialog {
 
   private static Class<?> PKG = CPythonScriptExecutorMeta.class;
 
   private CTabFolder wctfContainer;
 
-  private CTabItem wctiConfig, wctiScript, wctiFields, wctiLibrary;
-  private Composite wcConfig, wcScript, wcFields, wcLibrary;
+  private CTabItem wctiConfig, wctiScript, wctiFields, wctiLibrary, wctiScriptEditor;
+  private Composite wcConfig, wcScript, wcFields, wcLibrary, wcScriptEditor;
   private SelectionAdapter lsDef;
 
   /**
@@ -119,6 +112,13 @@ public class CPythonScriptExecutorDialog extends BaseTransformDialog implements 
   private StyledTextComp wstcLibraryEditor;
 
   /**
+   * scriptEditor tab
+   */
+  private Label wlScriptEditor;
+  private StyledTextComp wstcScriptEditor2;
+  private Button saveFile;
+
+  /**
    * Fields tab
    */
   private Label wlPyVarsToGet;
@@ -139,13 +139,13 @@ public class CPythonScriptExecutorDialog extends BaseTransformDialog implements 
   private static final int MARGIN = Const.MARGIN;
   private static int MIDDLE;
 
-  protected CPythonScriptExecutorMeta m_inputMeta;
-  protected CPythonScriptExecutorMeta m_originalMeta;
+  protected CPythonScriptExecutorMeta inputMeta;
+  protected CPythonScriptExecutorMeta originalMeta;
 
   //listeners
   ModifyListener simpleModifyListener = new ModifyListener() {
     @Override public void modifyText( ModifyEvent e ) {
-      m_inputMeta.setChanged();
+      inputMeta.setChanged();
     }
   };
 
@@ -158,22 +158,22 @@ public class CPythonScriptExecutorDialog extends BaseTransformDialog implements 
   public CPythonScriptExecutorDialog( Shell parent, IVariables variables, Object inMeta, PipelineMeta tr, String sname ) {
     super( parent, variables, (BaseTransformMeta) inMeta, tr, sname );
 
-    m_inputMeta = (CPythonScriptExecutorMeta) inMeta;
-    m_originalMeta = (CPythonScriptExecutorMeta) m_inputMeta.clone();
+    inputMeta = (CPythonScriptExecutorMeta) inMeta;
+    originalMeta = (CPythonScriptExecutorMeta) inputMeta.clone();
   }
 
   public CPythonScriptExecutorDialog(Shell parent, IVariables variables, BaseTransformMeta baseTransformMeta,
       PipelineMeta pipelineMeta, String transformName) {
     super(parent, variables, baseTransformMeta, pipelineMeta, transformName);
-    m_inputMeta = (CPythonScriptExecutorMeta) baseTransformMeta;
-    m_originalMeta = (CPythonScriptExecutorMeta) m_inputMeta.clone();
+    inputMeta = (CPythonScriptExecutorMeta) baseTransformMeta;
+    originalMeta = (CPythonScriptExecutorMeta) inputMeta.clone();
   }
 
   public CPythonScriptExecutorDialog(Shell parent, int nr, IVariables variables, Object in, PipelineMeta tr ) {
     super(parent, nr, variables, (BaseTransformMeta) in, tr);
 
-    m_inputMeta = (CPythonScriptExecutorMeta) in;
-    m_originalMeta = (CPythonScriptExecutorMeta) m_inputMeta.clone();
+    inputMeta = (CPythonScriptExecutorMeta) in;
+    originalMeta = (CPythonScriptExecutorMeta) inputMeta.clone();
   }
 
   @Override public String open() {
@@ -183,9 +183,9 @@ public class CPythonScriptExecutorDialog extends BaseTransformDialog implements 
 
     shell = new Shell( parent, SWT.DIALOG_TRIM | SWT.RESIZE | SWT.MAX | SWT.MIN );
     props.setLook( shell );
-    setShellImage( shell, m_inputMeta );
+    setShellImage( shell, inputMeta );
 
-    changed = m_inputMeta.hasChanged();
+    changed = inputMeta.hasChanged();
 
     FormLayout formLayout = new FormLayout();
     formLayout.marginWidth = Const.FORM_MARGIN;
@@ -267,9 +267,9 @@ public class CPythonScriptExecutorDialog extends BaseTransformDialog implements 
       }
     } );
 
-    getData( m_inputMeta );
+    getData( inputMeta );
 
-    m_inputMeta.setChanged( changed );
+    inputMeta.setChanged( changed );
 
     wctfContainer.setSelection( 0 );
     // Set the shell size, based upon previous time...
@@ -282,6 +282,43 @@ public class CPythonScriptExecutorDialog extends BaseTransformDialog implements 
       }
     }
     return transformName;
+  }
+
+  private void addScriptEditorTab() {
+    if(inputMeta.m_loadScriptAtRuntime) {
+      wctiScriptEditor = new CTabItem( wctfContainer, SWT.NONE );
+      wctiLibrary.setText( "Script editor" );
+      wcScriptEditor = new Composite( wctfContainer, SWT.NONE );
+      props.setLook( wcScriptEditor );
+      FormLayout fl = new FormLayout();
+      fl.marginWidth = 3;
+      fl.marginHeight = 3;
+      wcScriptEditor.setLayout( fl );
+
+      wlScriptEditor = new Label( wcScriptEditor, SWT.LEFT );
+      props.setLook( wlScriptEditor );
+      wlScriptEditor.setText( "Editing file: " + inputMeta.m_loadScriptFile );
+      fd = new FormData();
+      fd.left = new FormAttachment( 0, 0 );
+      fd.top = new FormAttachment( lastControl, MARGIN );
+      wlScriptEditor.setLayoutData( fd );
+      lastControl = wlScriptEditor;
+  
+      //Textbox to contains library
+      wstcScriptEditor2 =
+          new StyledTextComp( variables, wcScriptEditor, SWT.MULTI | SWT.LEFT | SWT.BORDER | SWT.H_SCROLL | SWT.V_SCROLL, false );
+      props.setLook( wstcScriptEditor2, Props.WIDGET_STYLE_FIXED);
+    
+      fd = new FormData();
+      fd.left = new FormAttachment( 0, 0 );
+      fd.top = new FormAttachment( lastControl, MARGIN );
+      fd.right = new FormAttachment( 100, -2 * MARGIN );
+      fd.bottom = new FormAttachment( 100, -MARGIN );
+      wstcScriptEditor2.setLayoutData( fd );
+    
+      wcScriptEditor.layout();
+      wctiScriptEditor.setControl( wcScriptEditor );
+    }
   }
 
   private void addConfigureTab() {
@@ -740,20 +777,17 @@ public class CPythonScriptExecutorDialog extends BaseTransformDialog implements 
   }
 
   private void setData( CPythonScriptExecutorMeta meta ) {
-    //meta.setRowsToProcess( wcvRowsToProcess.getText() );
-    //meta.setRowsToProcessSize( wtvRowsToProcessSize.getText() );
-    //meta.setDoingReservoirSampling( wbReservoirSampling.getSelection() );
-    //meta.setReservoirSamplingSize( wtvReservoirSamplingSize.getText() );
-    //meta.setRandomSeed( wtvRandomSeed.getText() );
     meta.setPythonVariablesToGet( stringToList( wtvPyVarsToGet.getText() ) );
     meta.setPythonCommand( wtvPythonCommand.getText() );
     meta.setPyPathEntries( wtvPyPathEntries.getText() );
-    //meta.setPyServerID( wtvPyServerID.getText() );
     meta.setScript( wstcScriptEditor.getText() );
     meta.setLibrary(wstcLibraryEditor.getText());
     meta.setLoadScriptAtRuntime( wbLoadScriptFile.getSelection() );
     meta.setScriptToLoad( wtvScriptLocation.getText() );
-    //meta.setIncludeFrameRowIndexAsOutputField( wbIncludeRowIndex.getSelection() );
+
+    if(meta.m_loadScriptAtRuntime) {
+      addScriptEditorTab();
+    }
 
     // incoming stream/frame name data from table
     int numNonEmpty = wtvInputFrames.nrNonEmpty();
@@ -807,9 +841,13 @@ public class CPythonScriptExecutorDialog extends BaseTransformDialog implements 
     if ( wbLoadScriptFile.getSelection() ) {
       wtvScriptLocation.setEditable( true );
       wstcScriptEditor.getTextWidget().setBackground( GuiResource.getInstance().getColorDemoGray() );
+      addScriptEditorTab();
     } else {
       wtvScriptLocation.setEditable( false );
       props.setLook(wstcScriptEditor, Props.WIDGET_STYLE_FIXED);
+
+      //remove tab editor
+      wctiScriptEditor.dispose();
     }
     wbScriptBrowse.setEnabled( wbLoadScriptFile.getSelection() );
 
@@ -867,7 +905,7 @@ public class CPythonScriptExecutorDialog extends BaseTransformDialog implements 
 
   private void cancel() {
     transformName = null;
-    m_inputMeta.setChanged( changed );
+    inputMeta.setChanged( changed );
     dispose();
   }
 
@@ -881,10 +919,10 @@ public class CPythonScriptExecutorDialog extends BaseTransformDialog implements 
 
     transformName = wTransformName.getText(); // return value
 
-    setData( m_inputMeta );
-    if ( !m_originalMeta.equals( m_inputMeta ) ) {
-      m_inputMeta.setChanged();
-      changed = m_inputMeta.hasChanged();
+    setData( inputMeta );
+    if ( !originalMeta.equals( inputMeta ) ) {
+      inputMeta.setChanged();
+      changed = inputMeta.hasChanged();
     }
 
     dispose();
