@@ -1,0 +1,1 @@
+mvn -T4 -DskipTests=true clean install
