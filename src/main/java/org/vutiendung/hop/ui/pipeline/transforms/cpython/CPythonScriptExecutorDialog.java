@@ -20,7 +20,7 @@
  *
  ******************************************************************************/
 
-package org.phalanxdev.hop.ui.pipeline.transforms.cpython;
+package org.vutiendung.hop.ui.pipeline.transforms.cpython;
 
 import org.apache.hop.core.Const;
 import org.apache.hop.core.Props;
@@ -76,8 +76,7 @@ import org.eclipse.swt.widgets.Text;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.phalanxdev.hop.pipeline.transforms.cpython.CPythonScriptExecutorMeta;
-import org.phalanxdev.python.PythonSession;
+import org.vutiendung.hop.pipeline.transforms.cpython.CPythonScriptExecutorMeta;
 
 /**
  * Dialog for the CPythonScriptExecutor step

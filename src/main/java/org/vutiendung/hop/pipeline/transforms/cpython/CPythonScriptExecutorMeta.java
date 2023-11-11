@@ -20,7 +20,7 @@
  *
  ******************************************************************************/
 
-package org.phalanxdev.hop.pipeline.transforms.cpython;
+package org.vutiendung.hop.pipeline.transforms.cpython;
 
 import org.apache.hop.core.Const;
 import org.apache.hop.core.annotations.Transform;
@@ -48,18 +48,13 @@ import org.apache.hop.pipeline.transform.stream.IStream;
 import org.apache.hop.pipeline.transform.stream.IStream.StreamType;
 import org.apache.hop.pipeline.transform.stream.Stream;
 import org.apache.hop.pipeline.transform.stream.StreamIcon;
-import org.phalanxdev.hop.ui.pipeline.transforms.cpython.CPythonScriptExecutorDialog;
-import org.phalanxdev.python.PythonSession;
+import org.vutiendung.hop.ui.pipeline.transforms.cpython.CPythonScriptExecutorDialog;
 import org.w3c.dom.Node;
 
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Meta class for the CPythonScriptExecutor step
- *
- * @author Mark Hall (mhall{[at]}phalanxdev{[dot]}com)
- */
+
 @Transform(id = "CPythonScriptExecutor", image = "pylogo.svg", name = "CPython Script Executor", description = "Executes a python script", categoryDescription = "Statistics")
 public class CPythonScriptExecutorMeta extends BaseTransformMeta<CPythonScriptExecutor, CPythonScriptExecutorData> {
 
@@ -496,116 +491,6 @@ public class CPythonScriptExecutorMeta extends BaseTransformMeta<CPythonScriptEx
     return m_continueOnUnsetVars;
   }
 
-  public IRowMeta determineOutputRowMeta(IRowMeta[] info, IVariables space)
-      throws HopException {
-
-    List<IRowMeta> incomingMetas = new ArrayList<>();
-    IRowMeta rmi = new RowMeta();
-
-    // possibly multiple incoming row sets
-    for (IRowMeta r : info) {
-      if (r != null) {
-        incomingMetas.add(r);
-      }
-    }
-
-    PythonSession.RowMetaAndRows
-        scriptRM =
-        CPythonScriptExecutorData
-            .determineOutputMetaSingleVariable(this, incomingMetas, this, getLog(), space);
-
-    return scriptRM.m_rowMeta;
-  }
-
-  @Override
-  public void getFields(IRowMeta rowMeta, String transformName, IRowMeta[] info,
-      TransformMeta nextTransform,
-      IVariables space, IHopMetadataProvider metaStore) throws HopTransformException {
-
-    rowMeta.clear();
-    if (m_outputFields != null && m_outputFields.size() > 0) {
-      rowMeta.addRowMeta(m_outputFields);
-
-      // Check across all input fields to see if they are in the output, and
-      // whether they are binary storage. If binary storage then copy over the original input value meta
-      // (this is because get fields in the dialog just creates new ValueMetas without knowledge of storage type)
-      if (getIncludeInputAsOutput()) {
-        for (IRowMeta r : info) {
-          if (r != null) {
-            for (IValueMeta vm : r.getValueMetaList()) {
-              int outIndex = m_outputFields.indexOfValue(vm.getName());
-              if (outIndex >= 0) {
-                m_outputFields.setValueMeta(outIndex, vm);
-              }
-            }
-          }
-        }
-      }
-    } else {
-      int numRowMetas = 0;
-      for (IRowMeta r : info) {
-        if (r != null) {
-          numRowMetas++;
-        }
-      }
-      if (numRowMetas != m_frameNames.size()) {
-        throw new HopTransformException(BaseMessages
-            .getString(PKG, "CPythonScriptExecutorMeta.Error.IncorrectNumberOfIncomingStreams",
-                m_frameNames.size(),
-                numRowMetas));
-      }
-
-      // incoming fields
-      addAllIncomingFieldsToOutput(rowMeta, transformName, info);
-
-      // script fields
-      try {
-        addScriptFieldsToOutput(rowMeta, info, transformName, space);
-      } catch (HopException ex) {
-        throw new HopTransformException(ex);
-      }
-    }
-  }
-
-  /**
-   * Add all incoming fields to the output row meta in the case where no output fields have been
-   * defined/edited by the user
-   */
-  private void addAllIncomingFieldsToOutput(IRowMeta rowMeta, String transformName,
-      IRowMeta[] info) {
-    if (getIncludeInputAsOutput()) {
-      for (IRowMeta r : info) {
-        rowMeta.addRowMeta(r);
-      }
-    }
-  }
-
-  /**
-   * Add script fields to output row meta in the case where no output fields have been
-   * defined/edited by the user. If there is just one variable to extract from python, then the
-   * script will be executed on some randomly generated data and the type of the variable will be
-   * determined; if it is a pandas frame, then the field meta data can be determined.
-   */
-  private void addScriptFieldsToOutput(IRowMeta rowMeta, IRowMeta[] info, String transformName,
-      IVariables space) throws HopException {
-    if (m_pyVarsToGet.size() == 1) {
-      // could be just a single pandas data frame - see if we can determine
-      // the fields in this frame...
-      IRowMeta scriptRM = determineOutputRowMeta(info, space);
-
-      for (IValueMeta vm : scriptRM.getValueMetaList()) {
-        vm.setOrigin(transformName);
-        rowMeta.addValueMeta(vm);
-      }
-    } else {
-      for (String varName : m_pyVarsToGet) {
-        // IValueMeta vm = new ValueMeta( varName, IValueMeta.TYPE_STRING );
-        IValueMeta vm = ValueMetaFactory.createValueMeta(varName, IValueMeta.TYPE_STRING);
-        vm.setOrigin(transformName);
-        rowMeta.addValueMeta(vm);
-      }
-    }
-  }
 
   /**
    * Given a fully defined output row metadata structure, determine which of the output fields are
@@ -871,7 +756,7 @@ public class CPythonScriptExecutorMeta extends BaseTransformMeta<CPythonScriptEx
     if (ioMeta.getInfoStreams().isEmpty()) {
       ((TransformIOMeta) ioMeta).setInputAcceptor(true);
       ((TransformIOMeta) ioMeta).setOutputProducer(true);
-      ((TransformIOMeta) ioMeta).setInputOptional(true);
+      ((TransformIOMeta) ioMeta).setInputOptional(false);
       ((TransformIOMeta) ioMeta).setSortedDataRequired(false);
       ioMeta.setInputDynamic(false);
       ioMeta.setOutputDynamic(false);

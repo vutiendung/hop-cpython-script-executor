@@ -20,7 +20,7 @@
  *
  ******************************************************************************/
 
-package org.phalanxdev.hop.pipeline.transforms.cpython;
+package org.vutiendung.hop.pipeline.transforms.cpython;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -29,6 +29,7 @@ import java.util.List;
 import org.apache.hop.core.IRowSet;
 import org.apache.hop.core.Const;
 import org.apache.hop.core.exception.HopException;
+import org.apache.hop.core.exception.HopRowException;
 import org.apache.hop.core.exception.HopValueException;
 import org.apache.hop.core.row.IRowMeta;
 import org.apache.hop.core.row.IValueMeta;
@@ -85,7 +86,6 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
 
   private boolean firstRow = true;
   private String tempDir = "";
-  private String pathSeparator = "";
   private String lineSeparator = "";
   String delimiter = ",";
   String defaultDateFormat = "yyyy-MM-dd";
@@ -107,7 +107,6 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
     this.data = data;
 
     tempDir = System.getProperty("java.io.tmpdir");
-    pathSeparator = System.getProperty("file.separator");
     lineSeparator = System.getProperty("line.separator");
 
     outputFilePath = correctFilePath(tempDir + java.util.UUID.randomUUID() + "_output.csv");
@@ -135,13 +134,14 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
 
       if(numberOfInputStream == 0) {
         logBasic("There is no input stream configured!");
+        setOutputDone();
         return false;
       }
 
       rowSets = new ArrayList<>();
       outputFileWriters = new ArrayList<>();
 
-      logDebug("Found " + numberOfInputStream + " input stream(s).");
+      logDebug("Found " + numberOfInputStream + " input stream(s)");
 
       for(int i = 0; i< numberOfInputStream; i++) {
         String transformationName = infoStreams.get(i).getSubject().toString();
@@ -167,24 +167,29 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
           outputFileWriters.add(fileWriter);
         }
         catch (Exception ex) {
-          throw new HopException( "There is an error when create FileOutputStream object: " + ex.getMessage() ); //$NON-NLS-1$
+          throw new HopException( "There is an error when creating file writer object: " + ex.getMessage() ); //$NON-NLS-1$
         }
-      }//end foreacg stream input list
+
+        waitUntilPipelineIsStarted();
+
+      }//end foreach stream input list
     } //end if(firstRow)
 
     // Start processing row
     logDebug("Writing input data to temp file with row number: " + currentRowNumb);
     for(int i=0; i < numberOfInputStream; i++ ){
-      String transformationName = infoStreams.get(i).getSubject().toString();
-      String frameName = meta.getFrameNames().get(i);
-      
+      String transformationName = infoStreams.get(i).getSubject().toString();      
 
       logDebug("Getting data for input stream " + transformationName);
+      
 
       IRowSet currentRowSet = rowSets.get(i);
-      Object[] r = currentRowSet.getRow();
+      Object[] r = getRowFrom(currentRowSet);
+
+      logDebug("Input stream [" + transformationName +"] status: isDone=" + currentRowSet.isDone() + ", isBlocking=" + currentRowSet.isBlocking());
 
       if (r == null) {
+        logDebug("The data of output [" + transformationName + "] is null");
         continue;
       }
 
@@ -245,8 +250,7 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
     currentRowNumb += 1;
 
     //Finished all the output
-    //Process data
-    //close all output stream if finished
+    //Process the output
     if (numberOfInputHasData == 0 ){
       //execute stript
       try {
@@ -270,6 +274,9 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
           throw new HopException(ex.getMessage());
         }
       }
+
+      //tell next step that this step was done
+      setOutputDone();
     }
 
     return numberOfInputHasData  > 0;
@@ -457,7 +464,7 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
 
       String line;
       while ((line = readerOutput.readLine()) != null) {
-        logDebug("Output when running commandline: " + line);
+        logDebug("Command output: " + line);
       }
 
       line = null;
