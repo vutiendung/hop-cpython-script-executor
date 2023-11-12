@@ -96,6 +96,7 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
   List<String> inputFiles;
   List<FileOutputStream> outputFileWriters;
   List<IStream> infoStreams;
+  List<Boolean> isWriteHeaders;
   int numberOfInputStream = 0;
 
   public CPythonScriptExecutor( TransformMeta transformMeta, CPythonScriptExecutorMeta meta,
@@ -113,144 +114,52 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
     logDebug("Temp dir: " + tempDir);
     
     inputFiles = new ArrayList<String>();
+    isWriteHeaders = new ArrayList<>();
+    outputFileWriters = new ArrayList<>();
+
+    for(int i = 0; i < meta.m_frameNames.size(); i ++) {
+      String frameName = meta.m_frameNames.get(i);
+      String filename = correctFilePath(tempDir  + java.util.UUID.randomUUID() + "_" + frameName +"_input.csv");
+      isWriteHeaders.add(false);
+      inputFiles.add(filename);
+
+      //Generate FileOutputStream to write data to output file
+      try {
+        FileOutputStream fileWriter = new FileOutputStream(filename);
+        outputFileWriters.add(fileWriter);
+      }
+      catch (Exception ex) {
+        throw new HopException( "There is an error when creating file writer object: " + ex.getMessage() ); //$NON-NLS-1$
+      }
+    }//end foreach frame name
 
     //Install library lib
     installPythonLibrary();
   }
 
   @Override public boolean processRow() throws HopException {
-    int numberOfInputHasData = 0;
-    boolean shouldWriteHeader = false;
-
-    if (firstRow) {
-      firstRow = false;
-
-      shouldWriteHeader = true;
-
-      //Get list of input stream
-      infoStreams = meta.getTransformIOMeta().getInfoStreams();
-      numberOfInputStream = infoStreams.size();
-
-      if(numberOfInputStream == 0) {
-        logBasic("There is no input stream configured!");
-        setOutputDone();
-        return false;
-      }
-
-      rowSets = new ArrayList<>();
-      outputFileWriters = new ArrayList<>();
-
-      logDebug("Found " + numberOfInputStream + " input stream(s)");
-
-      for(int i = 0; i< numberOfInputStream; i++) {
-        String transformationName = infoStreams.get(i).getSubject().toString();
-        String frameName = meta.getFrameNames().get(i);
-
-        IRowSet rowSet = findInputRowSet(transformationName);
-
-        if(rowSet == null) {
-          throw new HopException( BaseMessages
-                                  .getString( PKG, "CPythonScriptExecutor.Error.UnableToFindSpecifiedInputStep",
-                                  transformationName ) );
-        }
-        else {
-           rowSets.add(rowSet);
-        }
-       
-        String filename = correctFilePath(tempDir  + java.util.UUID.randomUUID() + "_" + frameName +"_input.csv");
-        inputFiles.add(filename);
-
-        //Generate FileOutputStream to write data to output file
-        try {
-          FileOutputStream fileWriter = new FileOutputStream(filename);
-          outputFileWriters.add(fileWriter);
-        }
-        catch (Exception ex) {
-          throw new HopException( "There is an error when creating file writer object: " + ex.getMessage() ); //$NON-NLS-1$
-        }
-
-        waitUntilPipelineIsStarted();
-
-      }//end foreach stream input list
-    } //end if(firstRow)
-
-    // Start processing row
-    logDebug("Writing input data to temp file with row number: " + currentRowNumb);
-    for(int i=0; i < numberOfInputStream; i++ ){
-      String transformationName = infoStreams.get(i).getSubject().toString();      
-
-      logDebug("Getting data for input stream " + transformationName);
-      
-
-      IRowSet currentRowSet = rowSets.get(i);
-      Object[] r = getRowFrom(currentRowSet);
-
-      logDebug("Input stream [" + transformationName +"] status: isDone=" + currentRowSet.isDone() + ", isBlocking=" + currentRowSet.isBlocking());
-
-      if (r == null) {
-        logDebug("The data of output [" + transformationName + "] is null");
-        continue;
-      }
-
-      //get writer to write to temp file
-      FileOutputStream writer = outputFileWriters.get(i);
-
-      //It means this input has data
-      numberOfInputHasData  += 1;
-
-      String outputRowString = "";
-      String headerString = "";
-
-      IRowMeta associatedRowMeta  = getPipelineMeta().getTransformFields(variables, transformationName);
-      int numberOfInputField = associatedRowMeta.size();
-
-      for(int fieldIndex =0; fieldIndex < numberOfInputField; fieldIndex++) {
-        IValueMeta fieldMeta = associatedRowMeta.getValueMetaList().get(fieldIndex);
-        String columnName = fieldMeta.getName();
-        
-        //Header
-        if ( fieldIndex <= numberOfInputField -2) {
-            headerString = headerString + columnName + delimiter;
-          }
-          else {
-            headerString = headerString + columnName + lineSeparator;
-          }
-
-          //value
-
-          String filedValue = objectToString(r[fieldIndex], fieldMeta);
-          if ( fieldIndex <= numberOfInputField -2) {
-            outputRowString = outputRowString + filedValue + delimiter;
-          }
-          else {
-            outputRowString = outputRowString + filedValue + lineSeparator;
-          }
-
-      }//End foreach field
-
-      // Write to temp file
-      try {
-        if (shouldWriteHeader) {
-          writer.write(headerString.getBytes());
-        }
-
-        writer.write(outputRowString.getBytes());
-      } catch (Exception ex) {
-        throw new HopException(ex.getMessage());
-      }
-      
-    }//end foreach input stream
-
     
+    Object[] currentRow = getRow();
+    if(first) {
+      if(currentRow == null) {
+        logBasic("There is not incoming row to this transformation!");
+        setOutputDone();
+      }
+      first = false;
+    }
 
-    //return false if there is no data to processs
-    //If return true, hop will trigger this function again
-    logDebug("numberOfInputHasData: " + numberOfInputHasData);
-    currentRowNumb += 1;
+    //there is no more row
+    //stop
+    if(currentRow == null && !first) {
+      //close file first
+      for(int i = 0; i < inputFiles.size(); i ++) {
+        try {
+          outputFileWriters.get(i).close();
+        } catch (Exception e) {
+          throw new HopException(e.getMessage());
+        }
+      }
 
-    //Finished all the output
-    //Process the output
-    if (numberOfInputHasData == 0 ){
       //execute stript
       try {
         rebuildScript();
@@ -264,27 +173,54 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
       //clean up temp file
       cleanupTempFile();
 
-      //Close all connection
-      for(int i = 0; i < outputFileWriters.size(); i++) {
-        try {
-          outputFileWriters.get(i).close();
-        }
-        catch(Exception ex) {
-          throw new HopException(ex.getMessage());
-        }
-      }
-
-      //tell next step that this step was done
+      //
       setOutputDone();
+      return false;
     }
 
-    return numberOfInputHasData  > 0;
+    IRowSet currentRowSet = getInputRowSets().get(getCurrentInputRowSetNr());
+
+    //write current row to all file of dataframe
+    String currentInputStepName = currentRowSet.getOriginTransformName();
+    for(int i = 0; i< meta.m_frameNames.size(); i ++) {
+
+      FileOutputStream currentWriter = outputFileWriters.get(i);
+      String inputStepname = meta.getStepIOMeta().getInfoStreams().get(i).getSubject().toString();
+
+      logDebug("Current inputStepName=" + currentInputStepName);
+      logDebug("inputStepName=" + inputStepname);
+
+      if(currentInputStepName.equals(inputStepname)) {
+        if(!isWriteHeaders.get(i)) {
+          //write header
+          String header = constructRowHeaderCsv(currentRowSet.getRowMeta());
+          try {
+            currentWriter.write(header.getBytes());
+          } catch (Exception ex) {
+            throw new HopException(ex.getMessage());
+          }
+
+          isWriteHeaders.set(i, true);
+        }
+
+        String csvRow = constructRowToCSV(currentRow, currentRowSet.getRowMeta());
+        try {
+            currentWriter.write(csvRow.getBytes());
+          } catch (Exception ex) {
+            throw new HopException(ex.getMessage());
+          }
+      }
+    }
+
+    currentRowNumb += 1;
+    return true;
+    
   }
 
   private void rebuildScript() throws HopException, IOException {
     String prefScript =  "import pandas as pd" + lineSeparator + lineSeparator;
     //generate code to read input
-    for(int i = 0; i < numberOfInputStream; i ++) {
+    for(int i = 0; i < inputFiles.size(); i ++) {
       String frameName = meta.getFrameNames().get(i);
       String inputFileName = inputFiles.get(i);
 
@@ -306,6 +242,42 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
     String scriptPath = createScriptFile(finalScript);
 
     executeScriptFile(scriptPath);
+  }
+
+  private String constructRowToCSV(Object[] inputRow, IRowMeta currentRowMeta) {
+    String result = "";
+    int numberOfInputField = currentRowMeta.size();
+
+    for(int fieldIndex =0; fieldIndex < numberOfInputField; fieldIndex++) {
+
+      String filedValue = String.valueOf(inputRow[fieldIndex]);
+      if ( fieldIndex <= numberOfInputField -2) {
+        result = result + filedValue + delimiter;
+      }
+      else {
+        result = result + filedValue + lineSeparator;
+      }
+    }//End foreach field
+
+    return result;
+  }
+
+  private String constructRowHeaderCsv(IRowMeta currentRowMeta) {
+    String result = "";
+    int numberOfInputField = currentRowMeta.size();
+
+    for (int fieldIndex = 0; fieldIndex < numberOfInputField; fieldIndex++) {
+      IValueMeta fieldMeta = currentRowMeta.getValueMetaList().get(fieldIndex);
+      String columnName = fieldMeta.getName();
+
+      if (fieldIndex <= numberOfInputField - 2) {
+        result = result + columnName + delimiter;
+      } else {
+        result = result + columnName + lineSeparator;
+      }
+    } // End foreach field
+
+    return result;
   }
 
   private String createScriptFile(String script) throws HopException {
