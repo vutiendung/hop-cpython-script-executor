@@ -37,6 +37,7 @@ import org.apache.hop.pipeline.transform.BaseTransformMeta;
 import org.apache.hop.pipeline.transform.ITransformDialog;
 import org.apache.hop.pipeline.transform.stream.IStream;
 import org.apache.hop.ui.core.dialog.ErrorDialog;
+import org.apache.hop.ui.core.dialog.MessageBox;
 import org.apache.hop.ui.core.dialog.ShowMessageDialog;
 import org.apache.hop.ui.core.gui.GuiResource;
 import org.apache.hop.ui.core.widget.ColumnInfo;
@@ -55,6 +56,7 @@ import org.eclipse.swt.events.ModifyEvent;
 import org.eclipse.swt.events.ModifyListener;
 import org.eclipse.swt.events.SelectionAdapter;
 import org.eclipse.swt.events.SelectionEvent;
+import org.eclipse.swt.events.SelectionListener;
 import org.eclipse.swt.events.ShellAdapter;
 import org.eclipse.swt.events.ShellEvent;
 import org.eclipse.swt.layout.FormAttachment;
@@ -73,6 +75,11 @@ import org.eclipse.swt.widgets.Shell;
 import org.eclipse.swt.widgets.TableItem;
 import org.eclipse.swt.widgets.Text;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -227,13 +234,31 @@ public class CPythonScriptExecutorDialog extends BaseTransformDialog implements 
     addScriptTab();
     addFieldsTab();
     addExtraLibraryTab();
+    if(inputMeta.getLoadScriptAtRuntime()) {
+      addScriptEditorTab();
+    }
 
     fd = new FormData();
     fd.left = new FormAttachment( 0, 0 );
     fd.top = new FormAttachment( wTransformName, MARGIN );
     fd.right = new FormAttachment( 100, 0 );
-    fd.bottom = new FormAttachment( 100, -50 );
+    fd.bottom = new FormAttachment( 95, -50 );
     wctfContainer.setLayoutData( fd );
+
+    wctfContainer.addSelectionListener(new SelectionAdapter() {
+      @Override public void widgetSelected( SelectionEvent e ) {
+        if(wctiScriptEditor != null && wtvScriptLocation.getText() != "") {
+          wlScriptEditor.setText( "Editing file: " + wtvScriptLocation.getText() );
+
+          //load file here
+          try {
+            wstcScriptEditor2.setText(readFileToString(wtvScriptLocation.getText()));
+          } catch (Exception ex) {
+            logError(ex.getMessage());
+          }
+        }
+      }
+    } );
 
     // some buttons
     wOk = new Button( shell, SWT.PUSH );
@@ -285,9 +310,10 @@ public class CPythonScriptExecutorDialog extends BaseTransformDialog implements 
   }
 
   private void addScriptEditorTab() {
-    if(inputMeta.m_loadScriptAtRuntime) {
+    if(inputMeta.getLoadScriptAtRuntime() || wbLoadScriptFile.getSelection()) {
       wctiScriptEditor = new CTabItem( wctfContainer, SWT.NONE );
-      wctiLibrary.setText( "Script editor" );
+      wctiScriptEditor.setText( "Script editor" );
+
       wcScriptEditor = new Composite( wctfContainer, SWT.NONE );
       props.setLook( wcScriptEditor );
       FormLayout fl = new FormLayout();
@@ -304,7 +330,7 @@ public class CPythonScriptExecutorDialog extends BaseTransformDialog implements 
       wlScriptEditor.setLayoutData( fd );
       lastControl = wlScriptEditor;
   
-      //Textbox to contains library
+      //Textbox to contains file content
       wstcScriptEditor2 =
           new StyledTextComp( variables, wcScriptEditor, SWT.MULTI | SWT.LEFT | SWT.BORDER | SWT.H_SCROLL | SWT.V_SCROLL, false );
       props.setLook( wstcScriptEditor2, Props.WIDGET_STYLE_FIXED);
@@ -313,8 +339,35 @@ public class CPythonScriptExecutorDialog extends BaseTransformDialog implements 
       fd.left = new FormAttachment( 0, 0 );
       fd.top = new FormAttachment( lastControl, MARGIN );
       fd.right = new FormAttachment( 100, -2 * MARGIN );
-      fd.bottom = new FormAttachment( 100, -MARGIN );
+      fd.bottom = new FormAttachment( 95, -MARGIN );
       wstcScriptEditor2.setLayoutData( fd );
+      lastControl = wstcScriptEditor2;
+
+      Button btSaveFile = new Button( wcScriptEditor, SWT.PUSH );
+      btSaveFile.setText( "Save file" ); 
+      btSaveFile.addListener( SWT.Selection, new Listener() {
+        @Override public void handleEvent( Event e ) {
+          //save file
+          try {
+              writeStringToFile(wstcScriptEditor2.getText(), wtvScriptLocation.getText());
+
+              //notify
+              MessageBox messageBox = new MessageBox(shell, SWT.ICON_INFORMATION | SWT.ABORT | SWT.RETRY | SWT.IGNORE);
+              messageBox.setText("Information");
+              messageBox.setMessage("File has been saved!");
+              messageBox.open();
+              
+            } catch (HopException e1) {
+              logError(e1.getMessage());
+            }
+        }
+      } );
+
+
+      fd = new FormData();
+      fd.right = new FormAttachment( 100, -MARGIN );
+      fd.top = new FormAttachment( lastControl, MARGIN );
+      btSaveFile.setLayoutData(fd);
     
       wcScriptEditor.layout();
       wctiScriptEditor.setControl( wcScriptEditor );
@@ -847,7 +900,9 @@ public class CPythonScriptExecutorDialog extends BaseTransformDialog implements 
       props.setLook(wstcScriptEditor, Props.WIDGET_STYLE_FIXED);
 
       //remove tab editor
-      wctiScriptEditor.dispose();
+      if (wctiScriptEditor != null) {
+        wctiScriptEditor.dispose();
+      }
     }
     wbScriptBrowse.setEnabled( wbLoadScriptFile.getSelection() );
 
@@ -968,5 +1023,21 @@ public class CPythonScriptExecutorDialog extends BaseTransformDialog implements 
    */
   private void setItemText( TextVar item, String value ) {
     item.setText( value == null ? "" : value );
+  }
+
+  private String readFileToString(String filePath) throws HopException, IOException {
+    byte[] bytes = Files.readAllBytes(Paths.get(filePath));
+    return new String (bytes);
+  }
+
+  private void writeStringToFile(String inputString, String filename) throws HopException {
+    try {
+      FileOutputStream  writer = new FileOutputStream(new File(filename));
+      writer.write(inputString.getBytes());
+      writer.close();
+    }
+    catch (Exception ex) {
+      throw new HopException(ex.getMessage());
+    }
   }
 }
