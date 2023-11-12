@@ -245,6 +245,7 @@ public class CPythonScriptExecutorDialog extends BaseTransformDialog implements 
     fd.bottom = new FormAttachment( 95, -50 );
     wctfContainer.setLayoutData( fd );
 
+    //change text after change the file in script tab and click to any tab
     wctfContainer.addSelectionListener(new SelectionAdapter() {
       @Override public void widgetSelected( SelectionEvent e ) {
         if(wctiScriptEditor != null && wtvScriptLocation.getText() != "") {
@@ -310,7 +311,12 @@ public class CPythonScriptExecutorDialog extends BaseTransformDialog implements 
   }
 
   private void addScriptEditorTab() {
-    if(inputMeta.getLoadScriptAtRuntime() || wbLoadScriptFile.getSelection()) {
+    if(wbLoadScriptFile.getSelection() || inputMeta.getLoadScriptAtRuntime()) {
+
+      if(wctiScriptEditor != null) {
+        wctiScriptEditor.dispose();
+      }
+      
       wctiScriptEditor = new CTabItem( wctfContainer, SWT.NONE );
       wctiScriptEditor.setText( "Script editor" );
 
@@ -356,7 +362,7 @@ public class CPythonScriptExecutorDialog extends BaseTransformDialog implements 
               messageBox.setText("Information");
               messageBox.setMessage("File has been saved!");
               messageBox.open();
-              
+
             } catch (HopException e1) {
               logError(e1.getMessage());
             }
@@ -837,10 +843,6 @@ public class CPythonScriptExecutorDialog extends BaseTransformDialog implements 
     meta.setLibrary(wstcLibraryEditor.getText());
     meta.setLoadScriptAtRuntime( wbLoadScriptFile.getSelection() );
     meta.setScriptToLoad( wtvScriptLocation.getText() );
-
-    if(meta.m_loadScriptAtRuntime) {
-      addScriptEditorTab();
-    }
 
     // incoming stream/frame name data from table
     int numNonEmpty = wtvInputFrames.nrNonEmpty();
