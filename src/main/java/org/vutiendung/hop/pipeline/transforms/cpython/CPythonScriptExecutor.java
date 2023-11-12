@@ -95,9 +95,9 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
   List<IRowSet> rowSets;
   List<String> inputFiles;
   List<FileOutputStream> outputFileWriters;
-  List<IStream> infoStreams;
-  List<Boolean> isWriteHeaders;
   int numberOfInputStream = 0;
+  int numberOfRowWrittenToOutput = 0;
+  List<String> outputFileHeaders = new ArrayList<>();
 
   public CPythonScriptExecutor( TransformMeta transformMeta, CPythonScriptExecutorMeta meta,
       CPythonScriptExecutorData data, int copyNr, PipelineMeta pipelineMeta, Pipeline pipeline ) throws HopException {
@@ -114,13 +114,11 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
     logDebug("Temp dir: " + tempDir);
     
     inputFiles = new ArrayList<String>();
-    isWriteHeaders = new ArrayList<>();
     outputFileWriters = new ArrayList<>();
 
     for(int i = 0; i < meta.m_frameNames.size(); i ++) {
       String frameName = meta.m_frameNames.get(i);
       String filename = correctFilePath(tempDir  + java.util.UUID.randomUUID() + "_" + frameName +"_input.csv");
-      isWriteHeaders.add(false);
       inputFiles.add(filename);
 
       //Generate FileOutputStream to write data to output file
@@ -140,17 +138,35 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
   @Override public boolean processRow() throws HopException {
     
     Object[] currentRow = getRow();
-    if(first) {
+    if(firstRow) {
       if(currentRow == null) {
         logBasic("There is not incoming row to this transformation!");
         setOutputDone();
+        return false;
       }
-      first = false;
+
+      List<IStream> infoIStreams = meta.getStepIOMeta().getInfoStreams();
+      for(int i=0; i< infoIStreams.size(); i ++) {
+        String transformationName = infoIStreams.get(i).getSubject().toString();
+        logDebug("Transformation name: " + transformationName);
+        IRowMeta currentIRowMeta = getPipelineMeta().getTransformFields( variables, transformationName );
+        String header = constructRowHeaderCsv(currentIRowMeta);
+        FileOutputStream currentFileWriter = outputFileWriters.get(i);
+        
+        try {
+          currentFileWriter.write(header.getBytes());
+          currentFileWriter.flush();
+        } catch (Exception e) {
+          throw new HopException(e.getMessage());
+        }
+      }
+
+      firstRow = false;
     }
 
     //there is no more row
     //stop
-    if(currentRow == null && !first) {
+    if(currentRow == null && !firstRow) {
       //close file first
       for(int i = 0; i < inputFiles.size(); i ++) {
         try {
@@ -191,17 +207,6 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
       logDebug("inputStepName=" + inputStepname);
 
       if(currentInputStepName.equals(inputStepname)) {
-        if(!isWriteHeaders.get(i)) {
-          //write header
-          String header = constructRowHeaderCsv(currentRowSet.getRowMeta());
-          try {
-            currentWriter.write(header.getBytes());
-          } catch (Exception ex) {
-            throw new HopException(ex.getMessage());
-          }
-
-          isWriteHeaders.set(i, true);
-        }
 
         String csvRow = constructRowToCSV(currentRow, currentRowSet.getRowMeta());
         try {
