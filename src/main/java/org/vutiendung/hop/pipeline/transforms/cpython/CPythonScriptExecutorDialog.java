@@ -391,8 +391,6 @@ public class CPythonScriptExecutorDialog extends BaseTransformDialog implements 
     wflConfig.marginHeight = 3;
     wcConfig.setLayout( wflConfig );
 
-    addOptionsGroup();
-
     // Input Frames Label
     Label inputFramesLab = new Label( wcConfig, SWT.RIGHT );
     inputFramesLab.setText( BaseMessages.getString( PKG, "CPythonScriptExecutor.InputFrames.Label" ) );
@@ -754,8 +752,6 @@ public class CPythonScriptExecutorDialog extends BaseTransformDialog implements 
 
   protected void getData( CPythonScriptExecutorMeta meta ) {
     setItemText( wtvPyVarsToGet, listToString( meta.getPythonVariablesToGet() ) );
-    setItemText( wtvPythonCommand, meta.getPythonCommand() );
-    setItemText( wtvPyPathEntries, meta.getPyPathEntries() );
     wstcScriptEditor.setText( meta.getScript() == null ? "" : meta.getScript() ); //$NON-NLS-1$
     wstcLibraryEditor.setText(meta.getLibrary() == null ? "": meta.getLibrary());
     wbLoadScriptFile.setSelection( meta.getLoadScriptAtRuntime() );
@@ -837,8 +833,6 @@ public class CPythonScriptExecutorDialog extends BaseTransformDialog implements 
 
   private void setData( CPythonScriptExecutorMeta meta ) {
     meta.setPythonVariablesToGet( stringToList( wtvPyVarsToGet.getText() ) );
-    meta.setPythonCommand( wtvPythonCommand.getText() );
-    meta.setPyPathEntries( wtvPyPathEntries.getText() );
     meta.setScript( wstcScriptEditor.getText() );
     meta.setLibrary(wstcLibraryEditor.getText());
     meta.setLoadScriptAtRuntime( wbLoadScriptFile.getSelection() );
