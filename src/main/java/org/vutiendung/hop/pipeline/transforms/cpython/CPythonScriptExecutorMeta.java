@@ -785,4 +785,9 @@ public class CPythonScriptExecutorMeta extends BaseTransformMeta<CPythonScriptEx
   public String getDialogClassName() {
     return CPythonScriptExecutorDialog.class.getCanonicalName();
   }
+
+  @Override
+  public boolean excludeFromRowLayoutVerification() {
+    return true;
+  }
 }
