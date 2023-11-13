@@ -81,23 +81,24 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
   private Scanner outputFileReader;
 
   private String outputFilePath = "";
-  private int currentRowNumb = 1;
 
   private boolean firstRow = true;
   private String tempDir = "";
   private String lineSeparator = "";
   String delimiter = ",";
-  String defaultDateFormat = "yyyy-MM-dd";
-  String defaultTimestampFormat = "yyyy-MM-dd HH:mm:ss.sss";
-  DateFormat dateFormater = new SimpleDateFormat("yyyy-MM-dd");
+  String defaultDateFormat = "yyyy/MM/dd";
+  String defaultTimestampFormat = "yyyy/MM/dd HH:mm:ss.SSSSSS";
+  DateFormat dateFormater = new SimpleDateFormat(defaultDateFormat);
+  String defautlPythonDateFormat = "%Y/%m/%d %H:%M:%S.%f";
   DateFormat timestampFormater = new SimpleDateFormat(defaultTimestampFormat);
 
   List<IRowSet> rowSets;
   List<String> inputFiles;
+  List<String> inputFileSchema = new ArrayList<>();
   List<FileOutputStream> outputFileWriters;
   int numberOfInputStream = 0;
   int numberOfRowWrittenToOutput = 0;
-  List<String> outputFileHeaders = new ArrayList<>();
+  List<String> outputDateFileHeaders = new ArrayList<>();
 
   public CPythonScriptExecutor( TransformMeta transformMeta, CPythonScriptExecutorMeta meta,
       CPythonScriptExecutorData data, int copyNr, PipelineMeta pipelineMeta, Pipeline pipeline ) throws HopException {
@@ -159,6 +160,10 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
         } catch (Exception e) {
           throw new HopException(e.getMessage());
         }
+
+        //Generate pandas header
+        String pandasHeader = generatePandasHeader(currentIRowMeta);
+        inputFileSchema.add(pandasHeader);
       }
 
       firstRow = false;
@@ -187,7 +192,7 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
       processFile(outputFilePath);
 
       //clean up temp file
-      cleanupTempFile();
+      //cleanupTempFile();
 
       //
       setOutputDone();
@@ -203,9 +208,6 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
       FileOutputStream currentWriter = outputFileWriters.get(i);
       String inputStepname = meta.getStepIOMeta().getInfoStreams().get(i).getSubject().toString();
 
-      logDebug("Current inputStepName=" + currentInputStepName);
-      logDebug("inputStepName=" + inputStepname);
-
       if(currentInputStepName.equals(inputStepname)) {
 
         String csvRow = constructRowToCSV(currentRow, currentRowSet.getRowMeta());
@@ -216,8 +218,6 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
           }
       }
     }
-
-    currentRowNumb += 1;
     return true;
     
   }
@@ -228,16 +228,17 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
     for(int i = 0; i < inputFiles.size(); i ++) {
       String frameName = meta.getFrameNames().get(i);
       String inputFileName = inputFiles.get(i);
+      String dtypeString = inputFileSchema.get(i);
 
       prefScript = prefScript
-                    + frameName + " = pd.read_csv(\"" + inputFileName + "\")"
+                    + frameName + " = pd.read_csv(\"" + inputFileName + "\"" + dtypeString + ")"
                     + lineSeparator;
     }
 
     String outputDataFrame = meta.varListToString();
 
     String sufScript = "if '" + outputDataFrame +"' in locals():" + lineSeparator
-    + "\t" + outputDataFrame + ".to_csv(\"" + outputFilePath + "\", index=False)" + lineSeparator
+    + "\t" + outputDataFrame + ".to_csv(\"" + outputFilePath + "\", index=False, date_format=\"" + defautlPythonDateFormat + "\")" + lineSeparator
     + "else:" + lineSeparator
     + "\tprint('Variable is not exist')" + lineSeparator ;
 
@@ -249,13 +250,14 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
     executeScriptFile(scriptPath);
   }
 
-  private String constructRowToCSV(Object[] inputRow, IRowMeta currentRowMeta) {
+  private String constructRowToCSV(Object[] inputRow, IRowMeta currentRowMeta) throws HopValueException {
     String result = "";
     int numberOfInputField = currentRowMeta.size();
 
     for(int fieldIndex =0; fieldIndex < numberOfInputField; fieldIndex++) {
+      IValueMeta curentValueMeta= currentRowMeta.getValueMeta(fieldIndex);
+      String filedValue = objectToString(inputRow[fieldIndex], curentValueMeta);
 
-      String filedValue = String.valueOf(inputRow[fieldIndex]);
       if ( fieldIndex <= numberOfInputField -2) {
         result = result + filedValue + delimiter;
       }
@@ -464,12 +466,23 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
     logBasic("Installing python library");
 
     String libraryPath = Paths.get(tempDir, java.util.UUID.randomUUID() + "_library.txt").toString();
-    writeStringToFile(meta.getLibrary(), libraryPath);
 
-    executeSystemCommand(new String[] {"pip", "install", "-r" , libraryPath});
+    if(meta.getLibrary() != null) {
+      writeStringToFile(meta.getLibrary(), libraryPath);
+
+      executeSystemCommand(new String[] {"pip", "install", "-r" , libraryPath});
+    }
+    else {
+      logBasic("There is no config library, we will ignore this step.");
+    }
+    
   }
 
   private String objectToString(Object input, IValueMeta fieldMeta) throws HopValueException {
+    if(input == null) {
+      return "";
+    }
+
     if(fieldMeta.isDate()) {
       return dateFormater.format(fieldMeta.getDate(input));
     }
@@ -477,6 +490,72 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
       return timestampFormater.format(fieldMeta.getDate(input));
     }
 
-    return String.valueOf(input);
+    return fieldMeta.getString(input);
+  }
+
+  private String generatePandasHeader(IRowMeta rowMeta) {
+    List<String> fieldHeader = new ArrayList<>();
+    List<String> datetimeFieldToParse = new ArrayList<>();
+
+    int countOfDatetimeField = 0;
+    int countOfNonDatetimeField = 0;
+
+    int numberOfInputField = rowMeta.size();
+
+    if(numberOfInputField == 0 ) {
+      return "";
+    }
+
+    for (int fieldIndex = 0; fieldIndex < numberOfInputField; fieldIndex++) {
+      IValueMeta fieldMeta = rowMeta.getValueMetaList().get(fieldIndex);
+      String columnName = fieldMeta.getName();
+      String fieldType = fieldMeta.getTypeDesc();
+
+      logDebug("Field name: " + columnName + ", filedType: " + fieldType);
+
+      if(fieldType.equals("Date") || fieldType.equals("Timestamp")) {
+        countOfDatetimeField++;
+        datetimeFieldToParse.add("'" + columnName + "'");
+        
+      }
+      else {
+        countOfNonDatetimeField++;
+
+        fieldHeader.add("'" + columnName + "': '" + hopeTypeToPandasType(fieldType) + "'");
+      }
+    } // End foreach field
+
+    if(countOfNonDatetimeField == 0 && countOfDatetimeField ==0 ) {
+      return "";
+    }
+
+    if(countOfNonDatetimeField == 0 && countOfDatetimeField > 0 ) {
+      return ", parse_dates=[" + String.join(",", datetimeFieldToParse) + "]";
+    }
+
+    if(countOfNonDatetimeField > 0 && countOfDatetimeField == 0 ) {
+      return ", dtype={" + String.join(",", fieldHeader) + "}";
+    }
+
+    if(countOfNonDatetimeField > 0 && countOfDatetimeField >= 0 ) {
+      return ", dtype={" + String.join(",", fieldHeader) + "}"
+          + ", parse_dates=[" + String.join(",", datetimeFieldToParse) + "]";
+    }
+
+    return "";
+  }
+
+  private String hopeTypeToPandasType(String hopType) {
+    switch (hopType) {
+      case "Boolean": return "bool";
+      case "Date": return "datetime64";
+      case "Integer": return "int64";
+      case "BigNumber": return "int64";
+      case "Timestamp": return "datetime64";
+      case "String": return "str";
+      case "Number": return "float64";
+      default:
+        return "object";
+    }
   }
 }
