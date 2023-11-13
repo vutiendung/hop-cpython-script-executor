@@ -110,7 +110,7 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
     tempDir = System.getProperty("java.io.tmpdir");
     lineSeparator = System.getProperty("line.separator");
 
-    outputFilePath = correctFilePath(tempDir + java.util.UUID.randomUUID() + "_output.csv");
+    outputFilePath = correctFilePath(Paths.get(tempDir, java.util.UUID.randomUUID() + "_output.csv").toString());
 
     logDebug("Temp dir: " + tempDir);
     
@@ -378,7 +378,7 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
         if( i>= row.length) {
           return null;
         }
-        
+
         if (fieldMeta.getName().equals(fileHeader[i])){
           ValueMetaString v = new ValueMetaString(row[i]);
           return fieldMeta.convertDataFromString(row[i], v, "", "", IValueMeta.TRIM_TYPE_NONE);
