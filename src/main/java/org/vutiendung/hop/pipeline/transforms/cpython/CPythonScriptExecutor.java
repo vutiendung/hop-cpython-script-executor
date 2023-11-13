@@ -374,6 +374,11 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
       int numberOfFieldFromFile = fileHeader.length;
 
       for(int i =0; i< numberOfFieldFromFile; i++) {
+
+        if( i>= row.length) {
+          return null;
+        }
+        
         if (fieldMeta.getName().equals(fileHeader[i])){
           ValueMetaString v = new ValueMetaString(row[i]);
           return fieldMeta.convertDataFromString(row[i], v, "", "", IValueMeta.TRIM_TYPE_NONE);
