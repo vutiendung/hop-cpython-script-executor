@@ -111,8 +111,6 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
     lineSeparator = System.getProperty("line.separator");
 
     outputFilePath = correctFilePath(Paths.get(tempDir, java.util.UUID.randomUUID() + "_output.csv").toString());
-
-    logDebug("Temp dir: " + tempDir);
     
     inputFiles = new ArrayList<String>();
     outputFileWriters = new ArrayList<>();
@@ -141,7 +139,24 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
     Object[] currentRow = getRow();
     if(firstRow) {
       if(currentRow == null) {
-        logBasic("There is not incoming row to this transformation!");
+        logBasic("There is no incoming row to this transformation!");
+        setOutputDone();
+        return false;
+      }
+
+      logDebug("Number of input dataframe: "+ meta.m_frameNames.size());
+      if(meta.m_frameNames.size() == 0) {
+        logBasic("You are not configured any input dataframe. This step will be ignored!");
+
+        setOutputDone();
+        return false;
+      }
+
+      IRowMeta outputFields = meta.m_outputFields;
+
+      if(outputFields == null || outputFields.size() == 0) {
+        logBasic("You are not configured any output field. The ouput will be blank!");
+
         setOutputDone();
         return false;
       }
@@ -149,7 +164,6 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
       List<IStream> infoIStreams = meta.getStepIOMeta().getInfoStreams();
       for(int i=0; i< infoIStreams.size(); i ++) {
         String transformationName = infoIStreams.get(i).getSubject().toString();
-        logDebug("Transformation name: " + transformationName);
         IRowMeta currentIRowMeta = getPipelineMeta().getTransformFields( variables, transformationName );
         String header = constructRowHeaderCsv(currentIRowMeta);
         FileOutputStream currentFileWriter = outputFileWriters.get(i);
@@ -192,7 +206,7 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
       processFile(outputFilePath);
 
       //clean up temp file
-      //cleanupTempFile();
+      cleanupTempFile();
 
       //
       setOutputDone();
@@ -223,7 +237,9 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
   }
 
   private void rebuildScript() throws HopException, IOException {
-    String prefScript =  "import pandas as pd" + lineSeparator + lineSeparator;
+    String prefScript =  "import pandas as pd" + lineSeparator
+                      + "from datetime import date, datetime" + lineSeparator
+                      + lineSeparator;
     //generate code to read input
     for(int i = 0; i < inputFiles.size(); i ++) {
       String frameName = meta.getFrameNames().get(i);
@@ -235,12 +251,39 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
                     + lineSeparator;
     }
 
+    prefScript = prefScript + lineSeparator + "# Start user script" + lineSeparator + lineSeparator;
+
     String outputDataFrame = meta.varListToString();
 
-    String sufScript = "if '" + outputDataFrame +"' in locals():" + lineSeparator
-    + "\t" + outputDataFrame + ".to_csv(\"" + outputFilePath + "\", index=False, date_format=\"" + defautlPythonDateFormat + "\")" + lineSeparator
-    + "else:" + lineSeparator
-    + "\tprint('Variable is not exist')" + lineSeparator ;
+    String sufScript = lineSeparator + "# End of user script" + lineSeparator + lineSeparator
+//Function to convert any type to string
+                                      + "def objectToString(inputObject):" + lineSeparator
+                                      + "\tif isinstance(inputObject, str):" + lineSeparator
+                                      + "\t\treturn inputObject" + lineSeparator
+                                      + "\tif isinstance(inputObject, date):" + lineSeparator
+                                      + "\t\treturn inputObject.strftime(\"%Y%m%d\")" + lineSeparator
+                                      + "\tif isinstance(inputObject, datetime):" + lineSeparator
+                                      + "\t\treturn inputObject.strftime(\"%Y%M%D_%H%M%S\")" + lineSeparator
+                                      + "\tif isinstance(inputObject, int) or isinstance(inputObject, float) or isinstance(inputObject, bool) :" + lineSeparator
+                                      + "\t\treturn str(inputObject)" + lineSeparator
+                                      + "\telse:" + lineSeparator
+                                      + "\t\treturn \"\"" + lineSeparator + lineSeparator
+//Check if variable is in script
+                                      + "if not '" + outputDataFrame +"' in locals():" + lineSeparator
+                                      + "\tprint('Variable [" + outputDataFrame + "] is not exist. Please check the script or job config again!')" + lineSeparator
+                                      + "\texit(1)" + lineSeparator + lineSeparator
+//Reseting index
+                                      + "if " + outputDataFrame + ".columns.nlevels > 1:" + lineSeparator
+                                      + "\tprint(\"Reseting column\")" + lineSeparator
+                                      + "\t" + outputDataFrame + ".columns = " + outputDataFrame + ".columns.map(lambda x: '_'.join([objectToString(i) for i in x]))" + lineSeparator
+                                      + "if " + outputDataFrame + ".index.nlevels > 1:" + lineSeparator
+                                      + "\tprint(\"Reseting index\")" + lineSeparator
+                                      + "\t" + outputDataFrame + ".index = " + outputDataFrame + ".index.map(lambda x: '_'.join([objectToString(i) for i in x]))" + lineSeparator + lineSeparator
+//export dataframe to file
+                                      + outputDataFrame + ".to_csv(\"" + outputFilePath + "\", index=False, date_format=\"" + defautlPythonDateFormat + "\")" + lineSeparator
+                                      
+                                      + lineSeparator;
+                                     
 
     String userScript = getUserScript();
 
@@ -317,12 +360,13 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
   }
 
   private void processFile(String filePath) {
-    System.out.println("Start reading output file of python");
+    logDebug("Start reading output data of python script");
 
     try {
       outputFileReader = new Scanner(new File(outputFilePath));
       int rowNumb = 0;
       IRowMeta outputFields = meta.m_outputFields;
+
       int numberOfField = outputFields.getValueMetaList().size();
       String[] outputFieldHeaders = null;
 
@@ -344,8 +388,6 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
             IValueMeta  field = outputFields.getValueMetaList().get(i);
             outputRow[i] = getValueOfField(field, outputFieldHeaders, r);
           }
-
-          //System.out.println("Output row: " + Arrays.toString(outputRow));
 
           putRow(outputFields, outputRow);
         }
@@ -375,7 +417,7 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
 
       for(int i =0; i< numberOfFieldFromFile; i++) {
 
-        if( i>= row.length) {
+        if(i >= row.length) {
           return null;
         }
 
@@ -441,13 +483,12 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
 
       Process process = processBuilder.start();
 
-      // blocked :(
       BufferedReader readerOutput = new BufferedReader(new InputStreamReader(process.getInputStream()));
       BufferedReader readerError = new BufferedReader(new InputStreamReader(process.getErrorStream()));
 
       String line;
       while ((line = readerOutput.readLine()) != null) {
-        logDebug("Command output: " + line);
+        logBasic("Command output: " + line);
       }
 
       line = null;
@@ -456,7 +497,7 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
       }
 
       int exitCode = process.waitFor();
-      logDebug("Return code of command: " + exitCode);
+      logBasic("Return code of command: " + exitCode);
       
       if(exitCode > 0) {
         throw new HopException("There is an error when excuting script");

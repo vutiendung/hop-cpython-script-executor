@@ -36,6 +36,7 @@ import org.apache.hop.pipeline.PipelineMeta;
 import org.apache.hop.pipeline.transform.BaseTransformMeta;
 import org.apache.hop.pipeline.transform.ITransformDialog;
 import org.apache.hop.pipeline.transform.stream.IStream;
+import org.apache.hop.ui.core.dialog.BaseDialog;
 import org.apache.hop.ui.core.dialog.ErrorDialog;
 import org.apache.hop.ui.core.dialog.MessageBox;
 import org.apache.hop.ui.core.dialog.ShowMessageDialog;
@@ -391,6 +392,8 @@ public class CPythonScriptExecutorDialog extends BaseTransformDialog implements 
     wflConfig.marginHeight = 3;
     wcConfig.setLayout( wflConfig );
 
+    //addOptionsGroup();
+
     // Input Frames Label
     Label inputFramesLab = new Label( wcConfig, SWT.RIGHT );
     inputFramesLab.setText( BaseMessages.getString( PKG, "CPythonScriptExecutor.InputFrames.Label" ) );
@@ -464,6 +467,7 @@ public class CPythonScriptExecutorDialog extends BaseTransformDialog implements 
         checkWidgets();
       }
     } );
+    
 
     wlScriptLocation = new Label( wcScript, SWT.RIGHT );
     props.setLook( wlScriptLocation );
@@ -478,22 +482,9 @@ public class CPythonScriptExecutorDialog extends BaseTransformDialog implements 
     fd.top = new FormAttachment( lastControl, MARGIN );
     wbScriptBrowse.setLayoutData( fd );
 
-    wbScriptBrowse.addSelectionListener( new SelectionAdapter() {
-      @Override public void widgetSelected( SelectionEvent e ) {
-        FileDialog dialog = new FileDialog( shell, SWT.OPEN );
-
-        if ( !org.apache.hop.core.util.Utils.isEmpty( wtvScriptLocation.getText() ) ) {
-          dialog.setFileName( variables.resolve( wtvScriptLocation.getText() ) );
-        }
-
-        if ( dialog.open() != null ) {
-          wtvScriptLocation
-              .setText( dialog.getFilterPath() + System.getProperty( "file.separator" ) + dialog.getFileName() );
-        }
-      }
-    } );
 
     wtvScriptLocation = new TextVar( variables, wcScript, SWT.SINGLE | SWT.LEFT | SWT.BORDER );
+    wtvScriptLocation.setEditable( false );
     props.setLook( wtvScriptLocation );
     fd = new FormData();
     fd.left = new FormAttachment( wlScriptLocation, MARGIN );
@@ -501,6 +492,22 @@ public class CPythonScriptExecutorDialog extends BaseTransformDialog implements 
     fd.right = new FormAttachment( wbScriptBrowse, -MARGIN );
     wtvScriptLocation.setLayoutData( fd );
     lastControl = wtvScriptLocation;
+
+    wbScriptBrowse.addSelectionListener( new SelectionAdapter() {
+      @Override public void widgetSelected( SelectionEvent e ) {
+        BaseDialog.presentFileDialog(
+                true,
+                shell,
+                wtvScriptLocation,
+                variables,
+                new String[] {"*.py", "*"},
+                new String[] {
+                  "Python script",
+                  BaseMessages.getString(PKG, "System.FileType.AllFiles")
+                },
+                true);
+        }
+    } );
 
     wlScript = new Label( wcScript, SWT.LEFT );
     props.setLook( wlScript );
@@ -518,7 +525,7 @@ public class CPythonScriptExecutorDialog extends BaseTransformDialog implements 
 
     wlPyVarsToGet = new Label( wcScript, SWT.RIGHT );
     props.setLook( wlPyVarsToGet );
-    wlPyVarsToGet.setText( "Python Variables to Get:" );
+    wlPyVarsToGet.setText( "Python dataframe name to get" );
     fd = new FormData();
     fd.left = new FormAttachment( 0, 0 );
     fd.right = new FormAttachment( FIRST_LABEL_RIGHT_PERCENTAGE, 0 );
@@ -532,17 +539,6 @@ public class CPythonScriptExecutorDialog extends BaseTransformDialog implements 
     fd.right = new FormAttachment( SECOND_PROMPT_RIGHT_PERCENTAGE, 0 );
     fd.bottom = new FormAttachment( 100, -MARGIN * 2 );
     wtvPyVarsToGet.setLayoutData( fd );
-    wtvPyVarsToGet.addFocusListener( new FocusAdapter() {
-      @Override public void focusLost( FocusEvent e ) {
-        super.focusLost( e );
-        String currVars = wtvPyVarsToGet.getText();
-        if ( !org.apache.hop.core.util.Utils.isEmpty( currVars ) ) {
-          List<String> varList = stringToList( currVars );
-          wbGetFields.setEnabled( varList.size() == 1 );
-          wbIncludeRowIndex.setEnabled( varList.size() == 1 );
-        }
-      }
-    } );
 
     wstcScriptEditor.addModifyListener( simpleModifyListener );
     fd = new FormData();
@@ -650,48 +646,6 @@ public class CPythonScriptExecutorDialog extends BaseTransformDialog implements 
     wctiFields.setControl( wcFields );
   }
 
-  private void getFrameFields( CPythonScriptExecutorMeta meta ) {
-
-    try {
-      meta.setOutputFields( new RowMeta() );
-      List<String> frameNames = meta.getFrameNames();
-      List<IStream> infoStreams = meta.getStepIOMeta().getInfoStreams();
-      List<IRowMeta> incomingMetas = new ArrayList<IRowMeta>();
-      if ( frameNames.size() > 0 && infoStreams.size() > 0 ) {
-
-        for ( int i = 0; i < infoStreams.size(); i++ ) {
-          incomingMetas.add( pipelineMeta.getTransformFields( variables, infoStreams.get( i ).getTransformMeta() ) );
-        }
-      }
-
-      ShowMessageDialog
-          smd =
-          new ShowMessageDialog( this.getParent(), SWT.YES | SWT.NO | SWT.ICON_WARNING,
-              BaseMessages.getString( PKG, "CPythonScriptExecutorDialog.GetFields.Dialog.Title" ),
-              BaseMessages.getString( PKG, "CPythonScriptExecutorDialog.GetFields.Dialog.Message" ), false );
-      int buttonID = smd.open();
-
-      if ( buttonID == SWT.YES ) {
-        IRowMeta rowMeta = new RowMeta();
-        meta.getFields( rowMeta, "bogus", incomingMetas.toArray( new IRowMeta[incomingMetas.size()] ), null,
-            variables, null );
-
-        wtvOutputFields.clearAll();
-        for ( int i = 0; i < rowMeta.size(); i++ ) {
-          TableItem item = new TableItem( wtvOutputFields.table, SWT.NONE );
-          item.setText( 1, Const.NVL( rowMeta.getValueMeta( i ).getName(), "" ) );
-          item.setText( 2, Const.NVL( rowMeta.getValueMeta( i ).getTypeDesc(), "" ) );
-        }
-        wtvOutputFields.removeEmptyRows();
-        wtvOutputFields.setRowNums();
-        wtvOutputFields.optWidth( true );
-      }
-    } catch ( HopException ex ) {
-      new ErrorDialog( shell, transformName,
-          BaseMessages.getString( PKG, "CPythonScriptExecutorDialog.ErrorGettingFields" ), ex );
-    }
-  }
-
   private void addOptionsGroup() {
     // add second group
     wgOptions = new Group( wcConfig, SWT.SHADOW_NONE );
@@ -761,51 +715,6 @@ public class CPythonScriptExecutorDialog extends BaseTransformDialog implements 
     setOutputFieldsTableFields( meta );
 
     checkWidgets();
-  }
-
-  private void varsToTableFields( CPythonScriptExecutorMeta meta ) {
-    // List<IRowMeta> incomingMetas;
-    IRowMeta incomingMetas = new RowMeta();
-    if ( meta.getIncludeInputAsOutput() ) {
-      List<String> frameNames = meta.getFrameNames();
-      List<IStream> infoStreams = meta.getStepIOMeta().getInfoStreams();
-      if ( frameNames.size() > 0 && infoStreams.size() > 0 ) {
-        // incomingMetas = new ArrayList<IRowMeta>();
-
-        try {
-          for ( int i = 0; i < infoStreams.size(); i++ ) {
-            incomingMetas.addRowMeta( pipelineMeta.getTransformFields( variables, infoStreams.get( i ).getTransformMeta() ) );
-          }
-        } catch ( HopException e ) {
-          new ErrorDialog( shell, transformName,
-              BaseMessages.getString( PKG, "CPythonScriptExecutorDialog.ErrorGettingFields" ), e );
-          return;
-        }
-      }
-    }
-
-    wtvOutputFields.clearAll();
-    if ( incomingMetas.size() > 0 ) {
-      for ( IValueMeta vm : incomingMetas.getValueMetaList() ) {
-        TableItem item = new TableItem( wtvOutputFields.table, SWT.NONE );
-        item.setText( 1, Const.NVL( vm.getName(), "" ) );
-        item.setText( 2, Const.NVL( vm.getTypeDesc(), "" ) );
-      }
-    }
-    String vars = wtvPyVarsToGet.getText();
-    if ( !org.apache.hop.core.util.Utils.isEmpty( vars ) ) {
-      String[] vA = vars.split( "," );
-      if ( vA.length > 0 ) {
-        for ( String var : vA ) {
-          TableItem item = new TableItem( wtvOutputFields.table, SWT.NONE );
-          item.setText( 1, Const.NVL( var.trim(), "" ) );
-          item.setText( 2, "String" );
-        }
-        wtvOutputFields.removeEmptyRows();
-        wtvOutputFields.setRowNums();
-        wtvOutputFields.optWidth( true );
-      }
-    }
   }
 
   private List<String> stringToList( String list ) {
@@ -885,14 +794,11 @@ public class CPythonScriptExecutorDialog extends BaseTransformDialog implements 
   }
 
   protected void checkWidgets() {
-    wtvScriptLocation.setEnabled( wbLoadScriptFile.getSelection() );
     wstcScriptEditor.setEnabled( !wbLoadScriptFile.getSelection() );
     if ( wbLoadScriptFile.getSelection() ) {
-      wtvScriptLocation.setEditable( true );
       wstcScriptEditor.getTextWidget().setBackground( GuiResource.getInstance().getColorDemoGray() );
       addScriptEditorTab();
     } else {
-      wtvScriptLocation.setEditable( false );
       props.setLook(wstcScriptEditor, Props.WIDGET_STYLE_FIXED);
 
       //remove tab editor
@@ -901,12 +807,6 @@ public class CPythonScriptExecutorDialog extends BaseTransformDialog implements 
       }
     }
     wbScriptBrowse.setEnabled( wbLoadScriptFile.getSelection() );
-
-    String currVars = wtvPyVarsToGet.getText();
-    if ( !org.apache.hop.core.util.Utils.isEmpty( currVars ) ) {
-      List<String> varList = stringToList( currVars );
-      //wbIncludeRowIndex.setEnabled( varList.size() == 1 );
-    }
   }
 
   protected void setInputToFramesTableFields( CPythonScriptExecutorMeta meta ) {
@@ -923,9 +823,6 @@ public class CPythonScriptExecutorDialog extends BaseTransformDialog implements 
         TableItem item = new TableItem( wtvInputFrames.table, SWT.NONE );
         item.setText( 1, Const.NVL( stepName, "" ) ); //$NON-NLS-1$
         item.setText( 2, Const.NVL( frameName, "" ) ); //$NON-NLS-1$
-
-        // TransformMeta m = pipelineMeta.findTransform(stepName);
-        // infoStreams.get(i).setTransformMeta(m);
       }
     }
 
@@ -987,14 +884,6 @@ public class CPythonScriptExecutorDialog extends BaseTransformDialog implements 
     return fd;
   }
 
-  private FormData getSecondLabelFormData( Control prevControl ) {
-    FormData fd = new FormData();
-    fd.left = new FormAttachment( prevControl, 0 );
-    fd.right = new FormAttachment( SECOND_LABEL_RIGHT_PERCENTAGE, 0 );
-    fd.top = new FormAttachment( lastControl, MARGIN );
-    return fd;
-  }
-
   private FormData getFirstPromptFormData( Control prevControl ) {
     FormData fd = new FormData();
     fd.left = new FormAttachment( prevControl, MARGIN );
@@ -1003,13 +892,6 @@ public class CPythonScriptExecutorDialog extends BaseTransformDialog implements 
     return fd;
   }
 
-  private FormData getSecondPromptFormData( Control prevControl ) {
-    FormData fd = new FormData();
-    fd.left = new FormAttachment( prevControl, MARGIN );
-    fd.top = new FormAttachment( lastControl, MARGIN );
-    fd.right = new FormAttachment( SECOND_PROMPT_RIGHT_PERCENTAGE, 0 );
-    return fd;
-  }
 
   /**
    * SWT TextVar's throw IllegalArgumentExceptions for null.  Defend against this.
