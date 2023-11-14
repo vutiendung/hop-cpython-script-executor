@@ -33,7 +33,10 @@ import org.apache.hop.core.exception.HopRowException;
 import org.apache.hop.core.exception.HopValueException;
 import org.apache.hop.core.row.IRowMeta;
 import org.apache.hop.core.row.IValueMeta;
+import org.apache.hop.core.row.IValueMetaConverter;
 import org.apache.hop.core.row.RowMeta;
+import org.apache.hop.core.row.ValueMetaAndData;
+import org.apache.hop.core.row.value.ValueMetaConverter;
 import org.apache.hop.core.row.value.ValueMetaString;
 import org.apache.hop.i18n.BaseMessages;
 import org.apache.hop.pipeline.Pipeline;
@@ -86,11 +89,11 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
   private String tempDir = "";
   private String lineSeparator = "";
   String delimiter = ",";
-  String defaultDateFormat = "yyyy/MM/dd";
-  String defaultTimestampFormat = "yyyy/MM/dd HH:mm:ss.SSSSSS";
-  DateFormat dateFormater = new SimpleDateFormat(defaultDateFormat);
-  String defautlPythonDateFormat = "%Y/%m/%d %H:%M:%S.%f";
-  DateFormat timestampFormater = new SimpleDateFormat(defaultTimestampFormat);
+  String defaultDateFormat = "yyyy-MM-dd";
+  String defaultTimestampFormat = "yyyy-MM-dd HH:mm:ss.SSSSSS";
+  SimpleDateFormat dateFormater = new SimpleDateFormat(defaultDateFormat);
+  String defautlPythonDateFormat = "%Y-%m-%d %H:%M:%S.%f";
+  SimpleDateFormat timestampFormater = new SimpleDateFormat(defaultTimestampFormat);
 
   List<IRowSet> rowSets;
   List<String> inputFiles;
@@ -251,11 +254,11 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
                     + lineSeparator;
     }
 
-    prefScript = prefScript + lineSeparator + "# Start user script" + lineSeparator + lineSeparator;
+    prefScript = prefScript + lineSeparator + "# Start user's script" + lineSeparator + lineSeparator;
 
     String outputDataFrame = meta.varListToString();
 
-    String sufScript = lineSeparator + "# End of user script" + lineSeparator + lineSeparator
+    String sufScript = lineSeparator + "# End of user's script" + lineSeparator + lineSeparator
 //Function to convert any type to string
                                       + "def objectToString(inputObject):" + lineSeparator
                                       + "\tif isinstance(inputObject, str):" + lineSeparator
@@ -272,16 +275,16 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
                                       + "if not '" + outputDataFrame +"' in locals():" + lineSeparator
                                       + "\tprint('Variable [" + outputDataFrame + "] is not exist. Please check the script or job config again!')" + lineSeparator
                                       + "\texit(1)" + lineSeparator + lineSeparator
-//Reseting index
+//Reseting index,column
                                       + "if " + outputDataFrame + ".columns.nlevels > 1:" + lineSeparator
                                       + "\tprint(\"Reseting column\")" + lineSeparator
-                                      + "\t" + outputDataFrame + ".columns = " + outputDataFrame + ".columns.map(lambda x: '_'.join([objectToString(i) for i in x]))" + lineSeparator
-                                      + "if " + outputDataFrame + ".index.nlevels > 1:" + lineSeparator
-                                      + "\tprint(\"Reseting index\")" + lineSeparator
-                                      + "\t" + outputDataFrame + ".index = " + outputDataFrame + ".index.map(lambda x: '_'.join([objectToString(i) for i in x]))" + lineSeparator + lineSeparator
-//export dataframe to file
+                                      + "\t" + outputDataFrame + ".columns = " + outputDataFrame + ".columns.map(lambda x: '_'.join([objectToString(i) for i in x]))" + lineSeparator + lineSeparator
+
+                                      + "print(\"Reseting index\")" + lineSeparator
+                                      + outputDataFrame + ".reset_index(inplace=True)" + lineSeparator + lineSeparator
+//Export dataframe to file
                                       + outputDataFrame + ".to_csv(\"" + outputFilePath + "\", index=False, date_format=\"" + defautlPythonDateFormat + "\")" + lineSeparator
-                                      
+//End script
                                       + lineSeparator;
                                      
 
@@ -372,14 +375,12 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
 
       while (outputFileReader.hasNextLine()) {
         String line = outputFileReader.nextLine();
-        System.out.println(line);
 
         if (rowNumb == 0) {
           //parse header
           outputFieldHeaders = line.split(delimiter);
         }
         else {
-          System.out.println("Output file header=" + Arrays.toString(outputFieldHeaders));
         
           String[] r = line.split(delimiter);
           Object[] outputRow = new Object[numberOfField];
@@ -397,8 +398,7 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
       outputFileReader.close();
 
     } catch (Exception e) {
-      System.out.println("An error occurred.");
-      e.printStackTrace();
+      logError(e.getMessage());
     }
   }
 
@@ -422,8 +422,18 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
         }
 
         if (fieldMeta.getName().equals(fileHeader[i])){
-          ValueMetaString v = new ValueMetaString(row[i]);
-          return fieldMeta.convertDataFromString(row[i], v, "", "", IValueMeta.TRIM_TYPE_NONE);
+          ValueMetaString fromFieldMeta = new ValueMetaString(row[i]);
+          ValueMetaConverter converter = new ValueMetaConverter();
+
+          if(fieldMeta.getType() == 9) { // Timestamp
+            converter.setDatePattern(timestampFormater);
+          }
+
+          if(fieldMeta.getType() == 3) { // Timestamp
+            converter.setDatePattern(dateFormater);
+          }
+
+          return converter.convertFromSourceToTargetDataType(fromFieldMeta.getType(), fieldMeta.getType(), row[i]);
         }
       }
 
@@ -604,4 +614,5 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
         return "object";
     }
   }
+
 }
