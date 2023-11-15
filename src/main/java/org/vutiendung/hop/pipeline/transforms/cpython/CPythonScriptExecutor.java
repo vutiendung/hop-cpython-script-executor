@@ -92,7 +92,8 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
   String defaultDateFormat = "yyyy-MM-dd";
   String defaultTimestampFormat = "yyyy-MM-dd HH:mm:ss.SSSSSS";
   SimpleDateFormat dateFormater = new SimpleDateFormat(defaultDateFormat);
-  String defautlPythonDateFormat = "%Y-%m-%d %H:%M:%S.%f";
+  String defautlPythonDateFormat = "%Y-%m-%d";
+  String defautlPythonDatetimeFormat = "%Y-%m-%d %H:%M:%S.%f";
   SimpleDateFormat timestampFormater = new SimpleDateFormat(defaultTimestampFormat);
 
   List<IRowSet> rowSets;
@@ -102,6 +103,7 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
   int numberOfInputStream = 0;
   int numberOfRowWrittenToOutput = 0;
   List<String> outputDateFileHeaders = new ArrayList<>();
+  List<String> pythonConvertDatetimeCommands = new ArrayList<>();
 
   public CPythonScriptExecutor( TransformMeta transformMeta, CPythonScriptExecutorMeta meta,
       CPythonScriptExecutorData data, int copyNr, PipelineMeta pipelineMeta, Pipeline pipeline ) throws HopException {
@@ -181,6 +183,7 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
         //Generate pandas header
         String pandasHeader = generatePandasHeader(currentIRowMeta);
         inputFileSchema.add(pandasHeader);
+        pythonConvertDatetimeCommands.add(generatePandasConvertDatetime(currentIRowMeta, meta.m_frameNames.get(i)));
       }
 
       firstRow = false;
@@ -251,6 +254,8 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
 
       prefScript = prefScript
                     + frameName + " = pd.read_csv(\"" + inputFileName + "\"" + dtypeString + ")"
+                    + lineSeparator
+                    + pythonConvertDatetimeCommands.get(i)
                     + lineSeparator;
     }
 
@@ -551,9 +556,6 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
 
   private String generatePandasHeader(IRowMeta rowMeta) {
     List<String> fieldHeader = new ArrayList<>();
-    List<String> datetimeFieldToParse = new ArrayList<>();
-
-    int countOfDatetimeField = 0;
     int countOfNonDatetimeField = 0;
 
     int numberOfInputField = rowMeta.size();
@@ -567,38 +569,41 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
       String columnName = fieldMeta.getName();
       String fieldType = fieldMeta.getTypeDesc();
 
-      logDebug("Field name: " + columnName + ", filedType: " + fieldType);
-
-      if(fieldType.equals("Date") || fieldType.equals("Timestamp")) {
-        countOfDatetimeField++;
-        datetimeFieldToParse.add("'" + columnName + "'");
-        
-      }
-      else {
-        countOfNonDatetimeField++;
-
+      if(!fieldType.equals("Date") || !fieldType.equals("Timestamp")) { 
+        countOfNonDatetimeField ++;
         fieldHeader.add("'" + columnName + "': '" + hopeTypeToPandasType(fieldType) + "'");
       }
     } // End foreach field
 
-    if(countOfNonDatetimeField == 0 && countOfDatetimeField ==0 ) {
+    if(countOfNonDatetimeField > 0) {
+      return ", dtype={" + String.join(",", fieldHeader) + "}";
+    }
+    return "";
+  }
+
+  private String generatePandasConvertDatetime(IRowMeta rowMeta, String dataFrameName) {
+    String result = "";
+
+    int numberOfInputField = rowMeta.size();
+
+    if(numberOfInputField == 0 ) {
       return "";
     }
 
-    if(countOfNonDatetimeField == 0 && countOfDatetimeField > 0 ) {
-      return ", parse_dates=[" + String.join(",", datetimeFieldToParse) + "]";
-    }
+    for (int fieldIndex = 0; fieldIndex < numberOfInputField; fieldIndex++) {
+      IValueMeta fieldMeta = rowMeta.getValueMetaList().get(fieldIndex);
+      String columnName = fieldMeta.getName();
+      String fieldType = fieldMeta.getTypeDesc();
 
-    if(countOfNonDatetimeField > 0 && countOfDatetimeField == 0 ) {
-      return ", dtype={" + String.join(",", fieldHeader) + "}";
-    }
+      if(fieldType.equals("Date")) { 
+         result = result + dataFrameName + "['"+ columnName +"'] = pd.to_datetime(" + dataFrameName +"['" + columnName +"'], format=\"" + defautlPythonDateFormat + "\").dt.date" + lineSeparator;
+      }
+      else if(fieldType.equals("Timestamp")) {
+        result = result + dataFrameName + "['"+ columnName +"'] = pd.to_datetime(" + dataFrameName +"[\"" + columnName +"\"], format=\"" + defautlPythonDatetimeFormat + "\")" + lineSeparator;
+      }
 
-    if(countOfNonDatetimeField > 0 && countOfDatetimeField >= 0 ) {
-      return ", dtype={" + String.join(",", fieldHeader) + "}"
-          + ", parse_dates=[" + String.join(",", datetimeFieldToParse) + "]";
-    }
-
-    return "";
+    } // End foreach field
+    return result + lineSeparator;
   }
 
   private String hopeTypeToPandasType(String hopType) {
