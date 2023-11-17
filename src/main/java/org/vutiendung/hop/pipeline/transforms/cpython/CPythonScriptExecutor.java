@@ -54,6 +54,9 @@ import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.Scanner;
 
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 import org.apache.hop.core.util.StreamLogger;
 
 /**
@@ -67,7 +70,6 @@ import org.apache.hop.core.util.StreamLogger;
  * string form or as png image data - the step automatically detects if a variable is an image and
  * retrieves it as png. In this mode there is one row output from the step, where each outgoing
  * field holds the string/serializable value of a single variable.
- * </p>
  * The step requires python 2.7 or 3.4. It also requires the pandas, numpy, matplotlib and sklearn.
  * The python executable must be available in the user's path.
  *
@@ -89,10 +91,10 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
   private String tempDir = "";
   private String lineSeparator = "";
   String delimiter = ",";
-  String defaultDateFormat = "yyyy-MM-dd";
+  String defaultDateFormat = "yyyy-MM-dd HH:mm:ss.SSSSSS";
   String defaultTimestampFormat = "yyyy-MM-dd HH:mm:ss.SSSSSS";
   SimpleDateFormat dateFormater = new SimpleDateFormat(defaultDateFormat);
-  String defautlPythonDateFormat = "%Y-%m-%d";
+  String defautlPythonDateFormat = "%Y-%m-%d %H:%M:%S.%f";
   String defautlPythonDatetimeFormat = "%Y-%m-%d %H:%M:%S.%f";
   SimpleDateFormat timestampFormater = new SimpleDateFormat(defaultTimestampFormat);
 
@@ -149,10 +151,17 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
         return false;
       }
 
-      logDebug("Number of input dataframe: "+ meta.m_frameNames.size());
       if(meta.m_frameNames.size() == 0) {
         logBasic("You are not configured any input dataframe. This step will be ignored!");
 
+        setOutputDone();
+        return false;
+      }
+
+      logDebug("Output frame name=[" + meta.varListToString() + "]");
+      logDebug("--------------------------------------");
+      if(meta.varListToString() == null || meta.varListToString().trim().isEmpty()){
+        logBasic("You are not configured the name of python pandas to get value to output. The script will be ignored!");
         setOutputDone();
         return false;
       }
@@ -243,8 +252,9 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
   }
 
   private void rebuildScript() throws HopException, IOException {
-    String prefScript =  "import pandas as pd" + lineSeparator
+    String prefScript = "import pandas as pd" + lineSeparator
                       + "from datetime import date, datetime" + lineSeparator
+                      + "from pandas.api.types import is_datetime64_any_dtype" + lineSeparator
                       + lineSeparator;
     //generate code to read input
     for(int i = 0; i < inputFiles.size(); i ++) {
@@ -287,6 +297,10 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
 
                                       + "print(\"Reseting index\")" + lineSeparator
                                       + outputDataFrame + ".reset_index(inplace=True)" + lineSeparator + lineSeparator
+//Conver timestamp to string
+                                      + "for series_name in " + outputDataFrame + ":" + lineSeparator
+                                      + "\tif is_datetime64_any_dtype(" + outputDataFrame + "[series_name].dtype):" + lineSeparator
+                                      + "\t\t" + outputDataFrame + "[series_name] = " + outputDataFrame + "[series_name].dt.strftime(\"" + defautlPythonDatetimeFormat + "\")" + lineSeparator + lineSeparator
 //Export dataframe to file
                                       + outputDataFrame + ".to_csv(\"" + outputFilePath + "\", index=False, date_format=\"" + defautlPythonDateFormat + "\")" + lineSeparator
 //End script
@@ -429,16 +443,24 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
         if (fieldMeta.getName().equals(fileHeader[i])){
           ValueMetaString fromFieldMeta = new ValueMetaString(row[i]);
           ValueMetaConverter converter = new ValueMetaConverter();
+          String fieldValue = row[i];
 
           if(fieldMeta.getType() == 9) { // Timestamp
             converter.setDatePattern(timestampFormater);
           }
 
-          if(fieldMeta.getType() == 3) { // Timestamp
-            converter.setDatePattern(dateFormater);
+          if(fieldMeta.getType() == 3) { // Date
+            if(stringMatch(row[i], "\\d{4}-\\d{2}-\\d{2}")) {
+              fieldValue += " 00:00:00.000000";
+              SimpleDateFormat formater = new SimpleDateFormat("yyyy-MM-dd");
+              converter.setDatePattern(formater);
+            }
+            else {
+              converter.setDatePattern(dateFormater);
+            } 
           }
 
-          return converter.convertFromSourceToTargetDataType(fromFieldMeta.getType(), fieldMeta.getType(), row[i]);
+          return converter.convertFromSourceToTargetDataType(fromFieldMeta.getType(), fieldMeta.getType(), (Object)fieldValue);
         }
       }
 
@@ -544,11 +566,8 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
       return "";
     }
 
-    if(fieldMeta.isDate()) {
-      return dateFormater.format(fieldMeta.getDate(input));
-    }
-    else if(fieldMeta.getType() == 9) {//timestamp type
-      return timestampFormater.format(fieldMeta.getDate(input));
+    if(fieldMeta.getType() == 3) { //Date
+      return dateFormater.format(input);
     }
 
     return fieldMeta.getString(input);
@@ -569,7 +588,7 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
       String columnName = fieldMeta.getName();
       String fieldType = fieldMeta.getTypeDesc();
 
-      if(!fieldType.equals("Date") || !fieldType.equals("Timestamp")) { 
+      if(!fieldType.equals("Date") && !fieldType.equals("Timestamp")) { 
         countOfNonDatetimeField ++;
         fieldHeader.add("'" + columnName + "': '" + hopeTypeToPandasType(fieldType) + "'");
       }
@@ -593,13 +612,9 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
     for (int fieldIndex = 0; fieldIndex < numberOfInputField; fieldIndex++) {
       IValueMeta fieldMeta = rowMeta.getValueMetaList().get(fieldIndex);
       String columnName = fieldMeta.getName();
-      String fieldType = fieldMeta.getTypeDesc();
-
-      if(fieldType.equals("Date")) { 
-         result = result + dataFrameName + "['"+ columnName +"'] = pd.to_datetime(" + dataFrameName +"['" + columnName +"'], format=\"" + defautlPythonDateFormat + "\").dt.date" + lineSeparator;
-      }
-      else if(fieldType.equals("Timestamp")) {
-        result = result + dataFrameName + "['"+ columnName +"'] = pd.to_datetime(" + dataFrameName +"[\"" + columnName +"\"], format=\"" + defautlPythonDatetimeFormat + "\")" + lineSeparator;
+      
+      if(fieldMeta.getType() == 3) {  //Date
+         result = result + dataFrameName + "['"+ columnName +"'] = pd.to_datetime(" + dataFrameName +"['" + columnName +"'], format=\"" + defautlPythonDatetimeFormat + "\")" + lineSeparator;
       }
 
     } // End foreach field
@@ -620,4 +635,13 @@ public class CPythonScriptExecutor extends BaseTransform<CPythonScriptExecutorMe
     }
   }
 
+  private boolean stringMatch(String input, String regex) {
+    final Pattern pattern = Pattern.compile(regex, Pattern.MULTILINE);
+    final Matcher matcher = pattern.matcher(input);
+    
+    while (matcher.find()) {
+        return true;
+    }
+    return false;
+  }
 }
